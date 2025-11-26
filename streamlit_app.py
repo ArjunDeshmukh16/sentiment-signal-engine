@@ -420,7 +420,7 @@ with st.sidebar:
     w_sent = st.slider("Sentiment weight", 0.0, 1.0, DEFAULT_WEIGHTS["sentiment"], 0.05)
 
     total_w = w_trend + w_mom + w_vol + w_sent
-    if total_w == 0:
+    if total_w <= 0:
         weights = DEFAULT_WEIGHTS
     else:
         weights = {
@@ -429,6 +429,12 @@ with st.sidebar:
             "volume": w_vol / total_w,
             "sentiment": w_sent / total_w,
         }
+
+    st.caption(
+        f"Normalized weights (sum=1.00): Trend {weights['trend']:.2f}, "
+        f"Momentum {weights['momentum']:.2f}, Volume {weights['volume']:.2f}, "
+        f"Sentiment {weights['sentiment']:.2f}"
+    )
 
     run_button = st.button("Run Engine")
 
