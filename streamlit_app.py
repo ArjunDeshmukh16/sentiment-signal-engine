@@ -374,7 +374,7 @@ def score_universe(
 with st.sidebar:
     st.header("Configuration")
 
-    mode = st.radio("Universe mode", ["By Sector", "Custom tickers"])
+        mode = st.radio("Universe mode", ["By Sector", "Select Script"])
 
     if mode == "By Sector":
         selected_sectors = st.multiselect(
@@ -384,8 +384,14 @@ with st.sidebar:
         )
         tickers = sorted({t for s in selected_sectors for t in SECTOR_UNIVERSE[s]})
     else:
-        raw = st.text_input("Enter tickers (comma-separated)", value="AAPL, MSFT, NVDA")
-        tickers = sorted({t.strip().upper() for t in raw.split(",") if t.strip()})
+        # Get all available tickers from the universe
+        all_tickers = sorted({t for tickers_list in SECTOR_UNIVERSE.values() for t in tickers_list})
+        selected_tickers = st.multiselect(
+            "Select script",
+            options=all_tickers,
+            default=["AAPL", "MSFT", "NVDA"],
+        )
+        tickers = selected_tickers
 
     st.markdown(f"**Universe size:** {len(tickers)} tickers")
 
