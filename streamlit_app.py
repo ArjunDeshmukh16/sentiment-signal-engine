@@ -33,6 +33,8 @@ NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
 st.set_page_config(page_title="Sentiment Signal Engine", layout="wide")
 st.title("📈 Sentiment Signal Engine — Sector & Stock Scanner")
 st.caption("Pick sectors or tickers, then click **Run Engine** in the sidebar.")
+if "engine_ran" not in st.session_state:
+    st.session_state["engine_ran"] = False
 
 # =========================================================
 # UNIVERSE: SECTORS → TICKERS
@@ -49,6 +51,59 @@ SECTOR_UNIVERSE: Dict[str, List[str]] = {
 
 SECTOR_BY_TICKER: Dict[str, str] = {
     t: sector for sector, tickers in SECTOR_UNIVERSE.items() for t in tickers
+}
+
+TICKER_NAME: Dict[str, str] = {
+    "AAPL": "Apple Inc.",
+    "MSFT": "Microsoft Corp.",
+    "NVDA": "NVIDIA Corp.",
+    "AVGO": "Broadcom Inc.",
+    "ADBE": "Adobe Inc.",
+    "CSCO": "Cisco Systems",
+    "AMD": "Advanced Micro Devices",
+    "CRM": "Salesforce Inc.",
+    "GOOGL": "Alphabet Inc.",
+    "META": "Meta Platforms",
+    "NFLX": "Netflix Inc.",
+    "DIS": "Walt Disney Co.",
+    "CMCSA": "Comcast Corp.",
+    "TMUS": "T-Mobile US",
+    "VZ": "Verizon Communications",
+    "AMZN": "Amazon.com Inc.",
+    "TSLA": "Tesla Inc.",
+    "HD": "Home Depot",
+    "MCD": "McDonald's Corp.",
+    "NKE": "Nike Inc.",
+    "LOW": "Lowe's Cos.",
+    "SBUX": "Starbucks Corp.",
+    "PEP": "PepsiCo Inc.",
+    "KO": "Coca-Cola Co.",
+    "WMT": "Walmart Inc.",
+    "COST": "Costco Wholesale",
+    "PG": "Procter & Gamble",
+    "MO": "Altria Group",
+    "MDLZ": "Mondelez Intl.",
+    "JPM": "JPMorgan Chase",
+    "BAC": "Bank of America",
+    "GS": "Goldman Sachs",
+    "MS": "Morgan Stanley",
+    "BLK": "BlackRock Inc.",
+    "AXP": "American Express",
+    "C": "Citigroup Inc.",
+    "UNH": "UnitedHealth Group",
+    "JNJ": "Johnson & Johnson",
+    "PFE": "Pfizer Inc.",
+    "ABBV": "AbbVie Inc.",
+    "MRK": "Merck & Co.",
+    "LLY": "Eli Lilly",
+    "TMO": "Thermo Fisher Scientific",
+    "CAT": "Caterpillar Inc.",
+    "HON": "Honeywell Intl.",
+    "BA": "Boeing Co.",
+    "UNP": "Union Pacific",
+    "LMT": "Lockheed Martin",
+    "GE": "General Electric",
+    "DE": "Deere & Co.",
 }
 
 LOOKBACK_DAYS_PRICE_DEFAULT = 900
@@ -342,6 +397,7 @@ def score_universe(
             rows.append(
                 {
                     "Ticker": t,
+                    "Name": TICKER_NAME.get(t, t),
                     "Sector": SECTOR_BY_TICKER.get(t, "Custom"),
                     "LastPrice": last["close"],
                     "Trend": comp["trend"],
@@ -362,7 +418,7 @@ def score_universe(
     df = df.sort_values("Score_0_100", ascending=False).reset_index(drop=True)
     df["Rank"] = df.index + 1
     cols = [
-        "Rank", "Ticker", "Sector", "Score_0_100", "Signal",
+        "Rank", "Ticker", "Name", "Sector", "Score_0_100", "Signal",
         "Trend", "Momentum", "Volume", "Sentiment", "LastPrice",
     ]
     return df[cols]
@@ -437,12 +493,15 @@ with st.sidebar:
     )
 
     run_button = st.button("Run Engine")
+    if run_button:
+        st.session_state["engine_ran"] = True
 
 
 # =========================================================
 # MAIN PAGE LOGIC
 # =========================================================
-if run_button:
+engine_ran = st.session_state.get("engine_ran", False)
+if engine_ran:
     if not tickers:
         st.warning("No tickers selected.")
         st.stop()
