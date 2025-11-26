@@ -482,11 +482,27 @@ if run_button:
                 ts_reset["signal_changed"] = ts_reset["Signal"].ne(ts_reset["Signal"].shift())
                 signal_markers_df = ts_reset[ts_reset["signal_changed"]].copy()
                 
-                # Also include the first point if it exists
-                if len(signal_markers_df) == 0 or signal_markers_df.index[0] != 0:
-                    signal_markers_df = pd.concat([ts_reset.iloc[[0]], signal_markers_df], ignore_index=False)
+                # Limit to max 1-2 instances of each signal type for minimal clutter
+                signal_markers_limited = []
+                for signal_type in ["BUY", "SELL", "HOLD"]:
+                    signal_rows = signal_markers_df[signal_markers_df["Signal"] == signal_type]
+                    if len(signal_rows) > 0:
+                        # Keep first occurrence and optionally the last one if there are 3+ occurrences
+                        if len(signal_rows) == 1:
+                            signal_markers_limited.append(signal_rows.iloc[[0]])
+                        elif len(signal_rows) == 2:
+                            signal_markers_limited.append(signal_rows.iloc[[0]])
+                            signal_markers_limited.append(signal_rows.iloc[[1]])
+                        else:  # 3 or more occurrences
+                            signal_markers_limited.append(signal_rows.iloc[[0]])
+                            signal_markers_limited.append(signal_rows.iloc[[-1]])
                 
-                signal_markers_df = signal_markers_df.sort_index()
+                if signal_markers_limited:
+                    signal_markers_df = pd.concat(signal_markers_limited, ignore_index=False).sort_index()
+                else:
+                    # Fallback: show first point if no transitions
+                    signal_markers_df = ts_reset.iloc[[0]].copy()
+
 
 
                 # MAIN PRICE LINE
