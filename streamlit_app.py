@@ -508,17 +508,17 @@ if run_button:
                 # MAIN PRICE LINE
                 price_line = (
                     alt.Chart(ts_reset)
-                    .mark_line(color="#4ade80", strokeWidth=2)
+                    .mark_line(color="#4ade80", strokeWidth=3)
                     .encode(
                         x=alt.X("Date:T", title="Date"),
                         y=alt.Y("close:Q", title="Price ($)"),
                     )
                 )
 
-                # BIG SIGNAL MARKERS
+                # ENHANCED SIGNAL MARKERS - Much larger and more visible
                 signal_points = (
                     alt.Chart(signal_markers_df)
-                    .mark_point(filled=True, size=200, opacity=1.0)
+                    .mark_point(filled=True, size=400, opacity=1.0, stroke="black", strokeWidth=2)
                     .encode(
                         x="Date:T",
                         y="close:Q",
@@ -526,9 +526,9 @@ if run_button:
                             "Signal:N",
                             scale=alt.Scale(
                                 domain=["BUY", "HOLD", "SELL"],
-                                range=["#16a34a", "#facc15", "#dc2626"],
+                                range=["#00cc44", "#ffdd00", "#ff3333"],
                             ),
-                            legend=alt.Legend(title="Signal"),
+                            legend=alt.Legend(title="Signal Type", labelFontSize=12, titleFontSize=14),
                         ),
                         shape=alt.Shape(
                             "Signal:N",
@@ -538,20 +538,32 @@ if run_button:
                             ),
                         ),
                         tooltip=[
-                            "Date:T",
-                            "close:Q",
-                            "Score_0_100:Q",
-                            "Signal:N",
-                            "rsi14:Q",
-                            "vol20:Q",
+                            alt.Tooltip("Date:T", format="%Y-%m-%d"),
+                            alt.Tooltip("close:Q", format="$,.2f", title="Entry Price"),
+                            alt.Tooltip("Score_0_100:Q", format=".1f", title="Signal Score"),
+                            alt.Tooltip("Signal:N", title="Signal Type"),
+                            alt.Tooltip("rsi14:Q", format=".1f", title="RSI 14"),
+                            alt.Tooltip("vol20:Q", format=",.0f", title="Vol 20MA"),
                         ],
                     )
                 )
 
+                # TEXT LABELS showing entry prices on chart
+                signal_labels = (
+                    alt.Chart(signal_markers_df)
+                    .mark_text(align="center", baseline="bottom", fontSize=11, fontWeight="bold", dy=-15)
+                    .encode(
+                        x="Date:T",
+                        y="close:Q",
+                        text=alt.Text("close:Q", format="$,.0f"),
+                        color=alt.value("black"),
+                    )
+                )
+
                 chart = (
-                    alt.layer(price_line, signal_points)
+                    alt.layer(price_line, signal_points, signal_labels)
                     .interactive()
-                    .properties(height=420)
+                    .properties(height=480, title=f"{selected_ticker} Price Action with Signal Entry Points")
                     .resolve_scale(y='shared')
                 )
                 st.altair_chart(chart, use_container_width=True)
