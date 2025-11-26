@@ -374,7 +374,7 @@ def score_universe(
 with st.sidebar:
     st.header("Configuration")
 
-        mode = st.radio("Universe mode", ["By Sector", "Select Script"])
+    mode = st.radio("Universe mode", ["By Sector", "Select Script"])
 
     if mode == "By Sector":
         selected_sectors = st.multiselect(
