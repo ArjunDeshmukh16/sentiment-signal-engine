@@ -18,10 +18,13 @@ import altair as alt
 # =========================================================
 # CONFIG: API KEY (for deployment use st.secrets)
 # =========================================================
-NEWSAPI_KEY = (
-    st.secrets.get("NEWSAPI_KEY")
-    or os.environ.get("NEWSAPI_KEY", "")
-)
+try:
+    NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", default="")
+except (KeyError, AttributeError, Exception):
+    NEWSAPI_KEY = ""
+
+NEWSAPI_KEY = NEWSAPI_KEY or os.environ.get("NEWSAPI_KEY", "")
+NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
 NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
 
 # =========================================================
@@ -467,10 +470,24 @@ if run_button:
                 ts = compute_signals_timeseries(df_price, weights, thresholds)
 
                 # Reset index so Altair can use "Date" column
-                ts_reset = ts.reset_index().rename(columns={"index": "Date"})
-                if "Date" not in ts_reset.columns:
-                    # In case the index name is something else
+                ts_reset = ts.reset_index()
+                # Rename the first column (which is the index) to "Date"
+                if ts_reset.columns[0] != "Date":
                     ts_reset = ts_reset.rename(columns={ts_reset.columns[0]: "Date"})
+
+                # Ensure Date is datetime
+                ts_reset["Date"] = pd.to_datetime(ts_reset["Date"])
+
+                # Show only signal transitions (when signal changes) for a clean look
+                ts_reset["signal_changed"] = ts_reset["Signal"].ne(ts_reset["Signal"].shift())
+                signal_markers_df = ts_reset[ts_reset["signal_changed"]].copy()
+                
+                # Also include the first point if it exists
+                if len(signal_markers_df) == 0 or signal_markers_df.index[0] != 0:
+                    signal_markers_df = pd.concat([ts_reset.iloc[[0]], signal_markers_df], ignore_index=False)
+                
+                signal_markers_df = signal_markers_df.sort_index()
+
 
                 # MAIN PRICE LINE
                 price_line = (
@@ -478,14 +495,14 @@ if run_button:
                     .mark_line(color="#4ade80", strokeWidth=2)
                     .encode(
                         x=alt.X("Date:T", title="Date"),
-                        y=alt.Y("close:Q", title="Price"),
+                        y=alt.Y("close:Q", title="Price ($)"),
                     )
                 )
 
                 # BIG SIGNAL MARKERS
                 signal_points = (
-                    alt.Chart(ts_reset)
-                    .mark_point(filled=True, size=150, opacity=0.9)
+                    alt.Chart(signal_markers_df)
+                    .mark_point(filled=True, size=200, opacity=1.0)
                     .encode(
                         x="Date:T",
                         y="close:Q",
@@ -519,6 +536,7 @@ if run_button:
                     alt.layer(price_line, signal_points)
                     .interactive()
                     .properties(height=420)
+                    .resolve_scale(y='shared')
                 )
                 st.altair_chart(chart, use_container_width=True)
 
