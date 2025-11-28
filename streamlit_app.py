@@ -126,6 +126,7 @@ if st.session_state["show_home"]:
             - Thresholds (BUY > x, SELL < y) reflect risk appetite—tune in the sidebar.  
             """
         )
+    st.stop()
 else:
     st.title("Signal Engine Results")
 
@@ -821,15 +822,5 @@ if engine_ran:
                 )
             )
             st.altair_chart(heat + heat_text, use_container_width=True)
-
-        st.markdown(
-            """
-            **How to read these visuals:** Price & Signals marks BUY/HOLD/SELL turns; RSI adds overbought/oversold bands; Volume shows bars plus 20-day trend; Sentiment compares raw vs. decay-weighted tone; Score Breakdown weights each component; Heatmap stacks composite scores by sector and ticker.
-
-            **Scoring math:** Each component is normalized 0–100 then combined as  
-            `Composite = Trend·w_trend + Momentum·w_momentum + Volume·w_vol + Sentiment·w_sent`.  
-            Signals use thresholds (`BUY ≥ {buy:.0f}`, `HOLD {hold:.0f}–{buy:.0f}`, `SELL < {hold:.0f}`) from the sidebar sliders. Weights are normalized to sum to 1.
-            """.format(buy=thresholds["buy"], hold=thresholds["hold"])
-        )
 else:
     st.info("Configure your universe in the sidebar and click **Run Engine**.")
