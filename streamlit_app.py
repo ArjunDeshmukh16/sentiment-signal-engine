@@ -25,7 +25,6 @@ except (KeyError, AttributeError, Exception):
 
 NEWSAPI_KEY = NEWSAPI_KEY or os.environ.get("NEWSAPI_KEY", "")
 NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
-NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
 
 # =========================================================
 # PAGE SETUP
@@ -35,6 +34,16 @@ st.set_page_config(page_title="Generating Buy/Sell Trading Signals", layout="wid
 if "engine_ran" not in st.session_state:
     st.session_state["engine_ran"] = False
 if "show_home" not in st.session_state:
+    st.session_state["show_home"] = True
+
+
+def _set_run_engine():
+    st.session_state["engine_ran"] = True
+    st.session_state["show_home"] = False
+
+
+def _set_home():
+    st.session_state["engine_ran"] = False
     st.session_state["show_home"] = True
 
 # =========================
@@ -72,7 +81,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-if st.session_state["show_home"]:
+def render_home():
     st.markdown("""
     <div class='hero'>
         <div class='hero-title'>Generating Buy/Sell Trading Signals from Structured Market Data</div>
@@ -129,20 +138,18 @@ if st.session_state["show_home"]:
             """
         )
 
-    with st.expander("Usage Rules & Model Notes"):
-        st.markdown(
-            """
-            - Research and educational analysis only; scores/signals are not investment recommendations.  
-            - Sentiment can be noisy; headlines may be sarcastic or irrelevant even after smoothing.  
-            - Technicals are backward-looking and cannot anticipate shocks.  
-            - A BUY signal means "conditions appear favorable," not a guarantee of upside.  
-            - Data quality matters; missing OHLCV or delayed news can affect stability.  
-            - Adjust weights by sector; different industries react differently to sentiment vs structure.  
-            - Thresholds (BUY > x, SELL < y) reflect risk appetite—tune in the sidebar.  
-            """
-        )
-else:
-    st.title("Signal Engine Results")
+        with st.expander("Usage Rules & Model Notes"):
+            st.markdown(
+                """
+                - Research and educational analysis only; scores/signals are not investment recommendations.  
+                - Sentiment can be noisy; headlines may be sarcastic or irrelevant even after smoothing.  
+                - Technicals are backward-looking and cannot anticipate shocks.  
+                - A BUY signal means "conditions appear favorable," not a guarantee of upside.  
+                - Data quality matters; missing OHLCV or delayed news can affect stability.  
+                - Adjust weights by sector; different industries react differently to sentiment vs structure.  
+                - Thresholds (BUY > x, SELL < y) reflect risk appetite—tune in the sidebar.  
+                """
+            )
 
 # =========================================================
 # UNIVERSE: SECTORS → TICKERS
@@ -594,23 +601,12 @@ with st.sidebar:
             "sentiment": w_sent / total_w,
         }
 
-    st.caption(
-        f"Normalized weights (sum=1.00): Trend {weights['trend']:.2f}, "
-        f"Momentum {weights['momentum']:.2f}, Volume {weights['volume']:.2f}, "
-        f"Sentiment {weights['sentiment']:.2f}"
-    )
+    st.button("Run Engine", type="primary", on_click=_set_run_engine, key="run_engine_btn")
+    st.button("Home", on_click=_set_home, key="home_btn")
 
-    run_button = st.button("Run Engine")
-    home_button = st.button("Home")
-    if run_button:
-        st.session_state["engine_ran"] = True
-        st.session_state["show_home"] = False
-    if home_button:
-        st.session_state["engine_ran"] = False
-        st.session_state["show_home"] = True
-
-# If on home view and engine not run, stop after rendering sidebar so it stays visible
+# If on home view and engine not run, render landing content then stop
 if st.session_state.get("show_home") and not st.session_state.get("engine_ran"):
+    render_home()
     st.stop()
 
 
