@@ -751,10 +751,19 @@ if engine_ran:
                         "sentiment": pol,
                         "decayed": pol * _decay_weight(a.published_at),
                     })
-                sdf = pd.DataFrame(rows).groupby("date").mean().reset_index()
+                sdf = (
+                    pd.DataFrame(rows)
+                    .groupby("date")
+                    .agg(
+                        sentiment=("sentiment", "mean"),
+                        decayed=("decayed", "mean"),
+                        headlines=("sentiment", "size"),
+                    )
+                    .reset_index()
+                )
 
                 sdf_melt = sdf.melt("date", ["sentiment", "decayed"], var_name="Series", value_name="Value")
-                sent_chart = (
+                sent_lines = (
                     alt.Chart(sdf_melt)
                     .mark_line(strokeWidth=3)
                     .encode(
@@ -765,10 +774,25 @@ if engine_ran:
                             scale=alt.Scale(domain=["sentiment","decayed"], range=["#22c55e","orange"]),
                             legend=alt.Legend(title="Series"),
                         ),
+                        tooltip=["date:T","Series:N","Value:Q"],
                     )
-                    .properties(height=240)
                 )
-                st.altair_chart(sent_chart, use_container_width=True)
+                neutral = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(color="#9ca3af", strokeDash=[4,4]).encode(y="y:Q")
+                headline_bars = (
+                    alt.Chart(sdf)
+                    .mark_bar(color="#60a5fa", opacity=0.35)
+                    .encode(
+                        x="date:T",
+                        y=alt.Y("headlines:Q", title="# Headlines"),
+                        tooltip=["date:T","headlines:Q"],
+                    )
+                )
+                st.altair_chart(
+                    alt.layer(headline_bars, neutral, sent_lines)
+                    .resolve_scale(y="independent")
+                    .properties(height=260),
+                    use_container_width=True,
+                )
         else:
             st.info("Sentiment disabled or no API key")
 
