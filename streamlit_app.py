@@ -525,128 +525,146 @@ if engine_ran:
         st.subheader("Ticker Details")
 
         selected_ticker = st.selectbox("Select a ticker", scores_df["Ticker"].tolist())
-        if selected_ticker:
-            col_price, col_news = st.columns([2, 1])
+        tabs = st.tabs([
+            "📈 Price & Signals",
+            "📊 RSI Momentum",
+            "🔊 Volume Structure",
+            "📰 Sentiment Timeline",
+            "🧮 Score Breakdown",
+            "🌡️ Sector Heatmap",
+        ])
 
-            # ================== PRICE + SIGNALS CHART ================== #
-            with col_price:
-                st.markdown(f"### {selected_ticker} — Price, Trend & Signals")
+        # === TAB 1 — Price + Signals ===
+        with tabs[0]:
+            st.subheader(f"{selected_ticker} — Price, Trend & Signals")
+            df_price = fetch_ohlcv(selected_ticker, lookback_price_days)
+            ts = compute_signals_timeseries(df_price, weights, thresholds)
+            ts_reset = ts.reset_index().rename(columns={ts.reset_index().columns[0]: "Date"})
+            ts_reset["Date"] = pd.to_datetime(ts_reset["Date"])
 
-                df_price = fetch_ohlcv(selected_ticker, lookback_price_days)
+            price_line = (
+                alt.Chart(ts_reset)
+                .mark_line(color="#4ade80", strokeWidth=3)
+                .encode(x="Date:T", y="close:Q")
+            )
 
-                # Compute historical signals using your scoring engine (technicals only)
-                ts = compute_signals_timeseries(df_price, weights, thresholds)
+            ts_reset["signal_changed"] = ts_reset["Signal"].ne(ts_reset["Signal"].shift())
+            markers = ts_reset[ts_reset["signal_changed"]]
 
-                # Reset index so Altair can use "Date" column
-                ts_reset = ts.reset_index()
-                # Rename the first column (which is the index) to "Date"
-                if ts_reset.columns[0] != "Date":
-                    ts_reset = ts_reset.rename(columns={ts_reset.columns[0]: "Date"})
+            signal_points = (
+                alt.Chart(markers)
+                .mark_point(size=300, filled=True, stroke="black")
+                .encode(
+                    x="Date:T",
+                    y="close:Q",
+                    color=alt.Color(
+                        "Signal:N",
+                        scale=alt.Scale(
+                            domain=["BUY","HOLD","SELL"],
+                            range=["#00cc44","#ffdd00","#ff3333"]
+                        )
+                    ),
+                    shape=alt.Shape(
+                        "Signal:N",
+                        scale=alt.Scale(
+                            domain=["BUY","HOLD","SELL"],
+                            range=["triangle-up","circle","triangle-down"]
+                        )
+                    ),
+                )
+            )
 
-                # Ensure Date is datetime
-                ts_reset["Date"] = pd.to_datetime(ts_reset["Date"])
+            st.altair_chart(price_line + signal_points, use_container_width=True)
 
-                # Show only signal transitions (when signal changes) for a clean look
-                ts_reset["signal_changed"] = ts_reset["Signal"].ne(ts_reset["Signal"].shift())
-                signal_markers_df = ts_reset[ts_reset["signal_changed"]].copy()
-                
-                # Limit to max 1-2 instances of each signal type for minimal clutter
-                signal_markers_limited = []
-                for signal_type in ["BUY", "SELL", "HOLD"]:
-                    signal_rows = signal_markers_df[signal_markers_df["Signal"] == signal_type]
-                    if len(signal_rows) > 0:
-                        # Keep first occurrence and optionally the last one if there are 3+ occurrences
-                        if len(signal_rows) == 1:
-                            signal_markers_limited.append(signal_rows.iloc[[0]])
-                        elif len(signal_rows) == 2:
-                            signal_markers_limited.append(signal_rows.iloc[[0]])
-                            signal_markers_limited.append(signal_rows.iloc[[1]])
-                        else:  # 3 or more occurrences
-                            signal_markers_limited.append(signal_rows.iloc[[0]])
-                            signal_markers_limited.append(signal_rows.iloc[[-1]])
-                
-                if signal_markers_limited:
-                    signal_markers_df = pd.concat(signal_markers_limited, ignore_index=False).sort_index()
+        # === TAB 2 — RSI ===
+        with tabs[1]:
+            st.subheader(f"{selected_ticker} — RSI(14)")
+            rsi_chart = (
+                alt.Chart(ts_reset)
+                .mark_line(color="#6366f1")
+                .encode(x="Date:T", y="rsi14:Q")
+            )
+            h30 = alt.Chart(pd.DataFrame({"y": [30]})).mark_rule(color="red").encode(y="y:Q")
+            h70 = alt.Chart(pd.DataFrame({"y": [70]})).mark_rule(color="red").encode(y="y:Q")
+            st.altair_chart(rsi_chart + h30 + h70, use_container_width=True)
+
+        # === TAB 3 — Volume ===
+        with tabs[2]:
+            st.subheader(f"{selected_ticker} — Volume Structure")
+            vol = alt.Chart(ts_reset).mark_bar(color="#60a5fa").encode(x="Date:T", y="volume:Q")
+            vol20 = alt.Chart(ts_reset).mark_line(color="orange", strokeWidth=3).encode(x="Date:T", y="vol20:Q")
+            st.altair_chart(vol + vol20, use_container_width=True)
+
+        # === TAB 4 — Sentiment Timeline ===
+        with tabs[3]:
+            st.subheader(f"{selected_ticker} — News Sentiment Timeline")
+
+            if include_sentiment and NEWSAPI_KEY:
+                arts = fetch_news_for_ticker(selected_ticker, news_lookback_days, NEWSAPI_KEY)
+                if not arts:
+                    st.info("No sentiment data")
                 else:
-                    # Fallback: show first point if no transitions
-                    signal_markers_df = ts_reset.iloc[[0]].copy()
+                    rows = []
+                    for a in arts:
+                        pol = TextBlob(f"{a.title} {a.description or ''}").sentiment.polarity
+                        rows.append({
+                            "date": a.published_at.date(),
+                            "sentiment": pol,
+                            "decayed": pol * _decay_weight(a.published_at),
+                        })
+                    sdf = pd.DataFrame(rows).groupby("date").mean().reset_index()
 
+                    base = alt.Chart(sdf).encode(x="date:T")
+                    line1 = base.mark_line(color="#22c55e").encode(y="sentiment:Q")
+                    line2 = base.mark_line(color="orange").encode(y="decayed:Q")
+                    st.altair_chart(line1 + line2, use_container_width=True)
+            else:
+                st.info("Sentiment disabled or no API key")
 
+        # === TAB 5 — Score Breakdown ===
+        with tabs[4]:
+            st.subheader(f"{selected_ticker} — Component Score Breakdown")
 
-                # MAIN PRICE LINE
-                price_line = (
-                    alt.Chart(ts_reset)
-                    .mark_line(color="#4ade80", strokeWidth=3)
-                    .encode(
-                        x=alt.X("Date:T", title="Date"),
-                        y=alt.Y("close:Q", title="Price ($)"),
-                    )
+            tech = add_technical_features(df_price).iloc[-1]
+            sent_val = 0.0
+            if include_sentiment and NEWSAPI_KEY:
+                sent_val = score_headlines(fetch_news_for_ticker(selected_ticker, news_lookback_days, NEWSAPI_KEY))
+
+            comp = {
+                "Trend": trend_score(tech),
+                "Momentum": momentum_score(tech),
+                "Volume": volume_score(tech),
+                "Sentiment": sentiment_component(sent_val),
+            }
+
+            comp_df = pd.DataFrame({
+                "Component": list(comp.keys()),
+                "Score": list(comp.values()),
+                "Weight": [weights[c.lower()] for c in comp.keys()],
+            })
+            comp_df["Weighted"] = comp_df["Score"] * comp_df["Weight"]
+
+            chart = alt.Chart(comp_df).mark_bar().encode(
+                x="Component:N", y="Score:Q", color="Component:N"
+            )
+
+            st.altair_chart(chart, use_container_width=True)
+            st.dataframe(comp_df)
+
+        # === TAB 6 — Sector Heatmap ===
+        with tabs[5]:
+            st.subheader("Sector Heatmap — Composite Score")
+            heat_df = scores_df[["Ticker","Sector","Score_0_100"]]
+            heat = (
+                alt.Chart(heat_df)
+                .mark_rect()
+                .encode(
+                    x="Sector:N",
+                    y="Ticker:N",
+                    color=alt.Color("Score_0_100:Q", scale=alt.Scale(scheme="redyellowgreen")),
+                    tooltip=["Sector","Ticker","Score_0_100"]
                 )
-
-                # ENHANCED SIGNAL MARKERS - Much larger and more visible
-                signal_points = (
-                    alt.Chart(signal_markers_df)
-                    .mark_point(filled=True, size=400, opacity=1.0, stroke="black", strokeWidth=2)
-                    .encode(
-                        x="Date:T",
-                        y="close:Q",
-                        color=alt.Color(
-                            "Signal:N",
-                            scale=alt.Scale(
-                                domain=["BUY", "HOLD", "SELL"],
-                                range=["#00cc44", "#ffdd00", "#ff3333"],
-                            ),
-                            legend=alt.Legend(title="Signal Type", labelFontSize=12, titleFontSize=14),
-                        ),
-                        shape=alt.Shape(
-                            "Signal:N",
-                            scale=alt.Scale(
-                                domain=["BUY", "HOLD", "SELL"],
-                                range=["triangle-up", "circle", "triangle-down"],
-                            ),
-                        ),
-                        tooltip=[
-                            alt.Tooltip("Date:T", format="%Y-%m-%d"),
-                            alt.Tooltip("close:Q", format="$,.2f", title="Entry Price"),
-                            alt.Tooltip("Score_0_100:Q", format=".1f", title="Signal Score"),
-                            alt.Tooltip("Signal:N", title="Signal Type"),
-                            alt.Tooltip("rsi14:Q", format=".1f", title="RSI 14"),
-                            alt.Tooltip("vol20:Q", format=",.0f", title="Vol 20MA"),
-                        ],
-                    )
-                )
-
-                # TEXT LABELS showing entry prices on chart
-                signal_labels = (
-                    alt.Chart(signal_markers_df)
-                    .mark_text(align="center", baseline="bottom", fontSize=11, fontWeight="bold", dy=-15)
-                    .encode(
-                        x="Date:T",
-                        y="close:Q",
-                        text=alt.Text("close:Q", format="$,.0f"),
-                        color=alt.value("black"),
-                    )
-                )
-
-                chart = (
-                    alt.layer(price_line, signal_points, signal_labels)
-                    .interactive()
-                    .properties(height=480, title=f"{selected_ticker} Price Action with Signal Entry Points")
-                    .resolve_scale(y='shared')
-                )
-                st.altair_chart(chart, use_container_width=True)
-
-            # ================== NEWS ================== #
-            with col_news:
-                st.markdown("### Recent Headlines")
-                if include_sentiment and NEWSAPI_KEY:
-                    articles = fetch_news_for_ticker(selected_ticker, news_lookback_days, NEWSAPI_KEY)
-                    if not articles:
-                        st.write("No recent news found.")
-                    else:
-                        for art in articles[:8]:
-                            st.markdown(f"- [{art.title}]({art.url})")
-                else:
-                    st.write("Sentiment disabled or no API key configured.")
+            )
+            st.altair_chart(heat, use_container_width=True)
 else:
     st.info("Configure your universe in the sidebar and click **Run Engine**.")
