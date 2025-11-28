@@ -129,19 +129,18 @@ if st.session_state["show_home"]:
             """
         )
 
-        with st.expander("Usage Rules & Model Notes"):
-            st.markdown(
-                """
-                - Research and educational analysis only; scores/signals are not investment recommendations.  
-                - Sentiment can be noisy; headlines may be sarcastic or irrelevant even after smoothing.  
-                - Technicals are backward-looking and cannot anticipate shocks.  
-                - A BUY signal means "conditions appear favorable," not a guarantee of upside.  
-                - Data quality matters; missing OHLCV or delayed news can affect stability.  
-                - Adjust weights by sector; different industries react differently to sentiment vs structure.  
-                - Thresholds (BUY > x, SELL < y) reflect risk appetite—tune in the sidebar.  
-                """
-            )
-    st.stop()
+    with st.expander("Usage Rules & Model Notes"):
+        st.markdown(
+            """
+            - Research and educational analysis only; scores/signals are not investment recommendations.  
+            - Sentiment can be noisy; headlines may be sarcastic or irrelevant even after smoothing.  
+            - Technicals are backward-looking and cannot anticipate shocks.  
+            - A BUY signal means "conditions appear favorable," not a guarantee of upside.  
+            - Data quality matters; missing OHLCV or delayed news can affect stability.  
+            - Adjust weights by sector; different industries react differently to sentiment vs structure.  
+            - Thresholds (BUY > x, SELL < y) reflect risk appetite—tune in the sidebar.  
+            """
+        )
 else:
     st.title("Signal Engine Results")
 
@@ -609,6 +608,10 @@ with st.sidebar:
     if home_button:
         st.session_state["engine_ran"] = False
         st.session_state["show_home"] = True
+
+# If on home view and engine not run, stop after rendering sidebar so it stays visible
+if st.session_state.get("show_home") and not st.session_state.get("engine_ran"):
+    st.stop()
 
 
 # =========================================================
