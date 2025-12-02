@@ -55,6 +55,7 @@ NEWSAPI_SEARCH_IN = "title,description"
 NEWSAPI_PAGE_SIZE = 40  # keep it modest to avoid rate limits
 NEWSAPI_TIMEOUT = 8
 GDELT_ENDPOINT = "https://api.gdeltproject.org/api/v2/doc/doc"
+SENTIMENT_FALLBACK = 0.05  # use a slight positive neutral when headlines are missing
 
 
 def _load_newsapi_keys() -> List[str]:
@@ -732,11 +733,13 @@ def score_universe(
             df = add_technical_features(df)
             last = df.iloc[-1]
 
-            if include_sentiment and NEWSAPI_KEY:
+            sent_val = 0.0
+            if include_sentiment:
                 news = fetch_news_for_ticker(t, news_lookback_days, NEWSAPI_KEY)
-                sent_val = score_headlines(news)
-            else:
-                sent_val = 0.0
+                if news:
+                    sent_val = score_headlines(news)
+                elif include_sentiment:
+                    sent_val = SENTIMENT_FALLBACK
 
             comp = {
                 "trend": trend_score(last),
