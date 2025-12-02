@@ -60,6 +60,17 @@ SENTIMENT_FALLBACK = 0.05  # use a slight positive neutral when headlines are mi
 
 def _load_newsapi_keys() -> List[str]:
     keys: List[str] = []
+
+    # Explicit numbered secrets
+    try:
+        keys.extend([
+            str(st.secrets.get("NEWSAPI_KEY_1", "")).strip(),
+            str(st.secrets.get("NEWSAPI_KEY_2", "")).strip(),
+            str(st.secrets.get("NEWSAPI_KEY_3", "")).strip(),
+        ])
+    except Exception:
+        pass
+
     # Primary single key if provided
     if NEWSAPI_KEY:
         keys.append(NEWSAPI_KEY)
@@ -71,12 +82,6 @@ def _load_newsapi_keys() -> List[str]:
             keys.extend([k.strip() for k in extra.split(",") if k.strip()])
         elif isinstance(extra, list):
             keys.extend([str(k).strip() for k in extra if str(k).strip()])
-        # Grab numbered secrets like NEWSAPI_KEY_1, NEWSAPI_KEY_2, ...
-        for k_name, k_val in dict(st.secrets).items():
-            if str(k_name).upper().startswith("NEWSAPI_KEY"):
-                val = str(k_val).strip()
-                if val:
-                    keys.append(val)
     except Exception:
         pass
 
@@ -93,7 +98,7 @@ def _load_newsapi_keys() -> List[str]:
     # Fallback defaults supplied by user
     keys.extend(DEFAULT_NEWSAPI_KEYS)
 
-    # Deduplicate while preserving order
+    # Deduplicate while preserving order and drop blanks
     deduped = []
     seen = set()
     for k in keys:
