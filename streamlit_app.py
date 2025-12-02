@@ -723,161 +723,176 @@ if engine_ran:
         ts_reset = ts.reset_index().rename(columns={ts.reset_index().columns[0]: "Date"})
         ts_reset["Date"] = pd.to_datetime(ts_reset["Date"])
 
-        # === Price + Signals ===
-        st.subheader(f"{selected_ticker} — Price, Trend & Signals")
-        price_line = (
-            alt.Chart(ts_reset)
-            .mark_line(color="#4ade80", strokeWidth=3)
-            .encode(
-                x=alt.X("Date:T", title="Date"),
-                y=alt.Y("close:Q", title="Close"),
-            )
-        )
-
-        ts_reset["signal_changed"] = ts_reset["Signal"].ne(ts_reset["Signal"].shift())
-        markers = ts_reset[ts_reset["signal_changed"]]
-
-        signal_points = (
-            alt.Chart(markers)
-            .mark_point(size=220, filled=True, stroke="black", strokeWidth=1.5)
-            .encode(
-                x="Date:T",
-                y="close:Q",
-                color=alt.Color(
-                    "Signal:N",
-                    scale=alt.Scale(
-                        domain=["BUY","HOLD","SELL"],
-                        range=["#00cc44","#ffdd00","#ff3333"]
-                    )
-                ),
-                shape=alt.Shape(
-                    "Signal:N",
-                    scale=alt.Scale(
-                        domain=["BUY","HOLD","SELL"],
-                        range=["triangle-up","circle","triangle-down"]
-                    )
-                ),
-            )
-        )
-
-        st.altair_chart(
-            (price_line + signal_points).properties(height=360),
-            use_container_width=True,
-        )
-
-        # === RSI ===
-        st.subheader(f"{selected_ticker} — RSI Momentum")
-        bands = pd.DataFrame({
-            "level": [30, 70],
-            "Label": ["Oversold (30)", "Overbought (70)"],
-            "Color": ["#ef4444", "#fb923c"],
-        })
-        rsi_chart = (
-            alt.Chart(ts_reset)
-            .mark_line(color="#6366f1")
-            .encode(
-                x=alt.X("Date:T", title="Date"),
-                y=alt.Y("rsi14:Q", title="RSI(14)"),
-            )
-        )
-        band_rules = (
-            alt.Chart(bands)
-            .mark_rule(strokeWidth=2)
-            .encode(
-                y="level:Q",
-                color=alt.Color(
-                    "Label:N",
-                    scale=alt.Scale(
-                        domain=list(bands["Label"]),
-                        range=list(bands["Color"])
-                    ),
-                    legend=alt.Legend(title="RSI Zones"),
-                ),
-            )
-        )
-        st.altair_chart((rsi_chart + band_rules).properties(height=240), use_container_width=True)
-
-        # === Volume ===
-        st.subheader(f"{selected_ticker} — Volume Structure")
-        vol = alt.Chart(ts_reset).mark_bar(color="#60a5fa").encode(
-            x=alt.X("Date:T", title="Date"),
-            y=alt.Y("volume:Q", title="Volume"),
-            tooltip=["Date:T","volume:Q"],
-        )
-        vol20 = alt.Chart(ts_reset).mark_line(color="orange", strokeWidth=3).encode(
-            x="Date:T",
-            y=alt.Y("vol20:Q", title="20D MA"),
-        )
-        st.altair_chart((vol + vol20).properties(height=240), use_container_width=True)
-
-        # === Sentiment Timeline ===
-        st.subheader(f"{selected_ticker} — News Sentiment Timeline")
-
+        news_articles: List[NewsArticle] = []
         if include_sentiment and NEWSAPI_KEY:
-            arts = fetch_news_for_ticker(selected_ticker, news_lookback_days, NEWSAPI_KEY)
-            if not arts:
-                st.info("No sentiment data")
-            else:
-                rows = []
-                for a in arts:
-                    pol = TextBlob(f"{a.title} {a.description or ''}").sentiment.polarity
-                    rows.append({
-                        "date": a.published_at.date(),
-                        "sentiment": pol,
-                        "decayed": pol * _decay_weight(a.published_at),
-                    })
-                sdf = (
-                    pd.DataFrame(rows)
-                    .groupby("date")
-                    .agg(
-                        sentiment=("sentiment", "mean"),
-                        decayed=("decayed", "mean"),
-                        headlines=("sentiment", "size"),
-                    )
-                    .reset_index()
-                )
+            news_articles = fetch_news_for_ticker(selected_ticker, news_lookback_days, NEWSAPI_KEY)
 
-                sdf_melt = sdf.melt("date", ["sentiment", "decayed"], var_name="Series", value_name="Value")
-                sent_lines = (
-                    alt.Chart(sdf_melt)
-                    .mark_line(strokeWidth=3)
-                    .encode(
-                        x=alt.X("date:T", title="Date"),
-                        y=alt.Y("Value:Q", title="Sentiment"),
-                        color=alt.Color(
-                            "Series:N",
-                            scale=alt.Scale(domain=["sentiment","decayed"], range=["#22c55e","orange"]),
-                            legend=alt.Legend(title="Series"),
+        tech_tab, sentiment_tab = st.tabs(["Technical Charts", "Sentiment & News"])
+
+        with tech_tab:
+        # === Price + Signals ===
+            st.subheader(f"{selected_ticker} — Price, Trend & Signals")
+            price_line = (
+                alt.Chart(ts_reset)
+                .mark_line(color="#4ade80", strokeWidth=3)
+                .encode(
+                    x=alt.X("Date:T", title="Date"),
+                    y=alt.Y("close:Q", title="Close"),
+                )
+            )
+
+            ts_reset["signal_changed"] = ts_reset["Signal"].ne(ts_reset["Signal"].shift())
+            markers = ts_reset[ts_reset["signal_changed"]]
+
+            signal_points = (
+                alt.Chart(markers)
+                .mark_point(size=220, filled=True, stroke="black", strokeWidth=1.5)
+                .encode(
+                    x="Date:T",
+                    y="close:Q",
+                    color=alt.Color(
+                        "Signal:N",
+                        scale=alt.Scale(
+                            domain=["BUY","HOLD","SELL"],
+                            range=["#00cc44","#ffdd00","#ff3333"]
+                        )
+                    ),
+                    shape=alt.Shape(
+                        "Signal:N",
+                        scale=alt.Scale(
+                            domain=["BUY","HOLD","SELL"],
+                            range=["triangle-up","circle","triangle-down"]
+                        )
+                    ),
+                )
+            )
+
+            st.altair_chart(
+                (price_line + signal_points).properties(height=360),
+                use_container_width=True,
+            )
+
+            # === RSI ===
+            st.subheader(f"{selected_ticker} — RSI Momentum")
+            bands = pd.DataFrame({
+                "level": [30, 70],
+                "Label": ["Oversold (30)", "Overbought (70)"],
+                "Color": ["#ef4444", "#fb923c"],
+            })
+            rsi_chart = (
+                alt.Chart(ts_reset)
+                .mark_line(color="#6366f1")
+                .encode(
+                    x=alt.X("Date:T", title="Date"),
+                    y=alt.Y("rsi14:Q", title="RSI(14)"),
+                )
+            )
+            band_rules = (
+                alt.Chart(bands)
+                .mark_rule(strokeWidth=2)
+                .encode(
+                    y="level:Q",
+                    color=alt.Color(
+                        "Label:N",
+                        scale=alt.Scale(
+                            domain=list(bands["Label"]),
+                            range=list(bands["Color"])
                         ),
-                        tooltip=["date:T","Series:N","Value:Q"],
+                        legend=alt.Legend(title="RSI Zones"),
+                    ),
+                )
+            )
+            st.altair_chart((rsi_chart + band_rules).properties(height=240), use_container_width=True)
+
+            # === Volume ===
+            st.subheader(f"{selected_ticker} — Volume Structure")
+            vol = alt.Chart(ts_reset).mark_bar(color="#60a5fa").encode(
+                x=alt.X("Date:T", title="Date"),
+                y=alt.Y("volume:Q", title="Volume"),
+                tooltip=["Date:T","volume:Q"],
+            )
+            vol20 = alt.Chart(ts_reset).mark_line(color="orange", strokeWidth=3).encode(
+                x="Date:T",
+                y=alt.Y("vol20:Q", title="20D MA"),
+            )
+            st.altair_chart((vol + vol20).properties(height=240), use_container_width=True)
+
+        with sentiment_tab:
+            st.subheader(f"{selected_ticker} — News Sentiment Timeline")
+
+            if include_sentiment and NEWSAPI_KEY:
+                if not news_articles:
+                    st.info("No sentiment data")
+                else:
+                    rows = []
+                    for a in news_articles:
+                        pol = TextBlob(f"{a.title} {a.description or ''}").sentiment.polarity
+                        rows.append({
+                            "date": a.published_at.date(),
+                            "sentiment": pol,
+                            "decayed": pol * _decay_weight(a.published_at),
+                        })
+                    sdf = (
+                        pd.DataFrame(rows)
+                        .groupby("date")
+                        .agg(
+                            sentiment=("sentiment", "mean"),
+                            decayed=("decayed", "mean"),
+                            headlines=("sentiment", "size"),
+                        )
+                        .reset_index()
                     )
-                )
-                neutral = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(color="#9ca3af", strokeDash=[4,4]).encode(y="y:Q")
-                headline_bars = (
-                    alt.Chart(sdf)
-                    .mark_bar(color="#60a5fa", opacity=0.35)
-                    .encode(
-                        x="date:T",
-                        y=alt.Y("headlines:Q", title="# Headlines"),
-                        tooltip=["date:T","headlines:Q"],
+
+                    sdf_melt = sdf.melt("date", ["sentiment", "decayed"], var_name="Series", value_name="Value")
+                    sent_lines = (
+                        alt.Chart(sdf_melt)
+                        .mark_line(strokeWidth=3)
+                        .encode(
+                            x=alt.X("date:T", title="Date"),
+                            y=alt.Y("Value:Q", title="Sentiment"),
+                            color=alt.Color(
+                                "Series:N",
+                                scale=alt.Scale(domain=["sentiment","decayed"], range=["#22c55e","orange"]),
+                                legend=alt.Legend(title="Series"),
+                            ),
+                            tooltip=["date:T","Series:N","Value:Q"],
+                        )
                     )
-                )
-                st.altair_chart(
-                    alt.layer(headline_bars, neutral, sent_lines)
-                    .resolve_scale(y="independent")
-                    .properties(height=260),
-                    use_container_width=True,
-                )
-        else:
-            st.info("Sentiment disabled or no API key")
+                    neutral = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(color="#9ca3af", strokeDash=[4,4]).encode(y="y:Q")
+                    headline_bars = (
+                        alt.Chart(sdf)
+                        .mark_bar(color="#60a5fa", opacity=0.35)
+                        .encode(
+                            x="date:T",
+                            y=alt.Y("headlines:Q", title="# Headlines"),
+                            tooltip=["date:T","headlines:Q"],
+                        )
+                    )
+                    st.altair_chart(
+                        alt.layer(headline_bars, neutral, sent_lines)
+                        .resolve_scale(y="independent")
+                        .properties(height=260),
+                        use_container_width=True,
+                    )
+
+                    st.markdown("**Latest headlines**")
+                    sorted_news = sorted(news_articles, key=lambda a: a.published_at, reverse=True)[:10]
+                    for art in sorted_news:
+                        pol = TextBlob(f"{art.title} {art.description or ''}").sentiment.polarity
+                        published = art.published_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+                        st.markdown(
+                            f"- [{art.title}]({art.url}) — {published} — sentiment {pol:+.2f}"
+                        )
+            else:
+                st.info("Sentiment disabled or no API key")
 
         # === Score Breakdown ===
         st.subheader(f"{selected_ticker} — Component Score Breakdown")
 
         tech = add_technical_features(df_price).iloc[-1]
         sent_val = 0.0
-        if include_sentiment and NEWSAPI_KEY:
-            sent_val = score_headlines(fetch_news_for_ticker(selected_ticker, news_lookback_days, NEWSAPI_KEY))
+        if include_sentiment and NEWSAPI_KEY and news_articles:
+            sent_val = score_headlines(news_articles)
 
         comp = {
             "Trend": trend_score(tech),
