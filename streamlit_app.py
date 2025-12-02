@@ -25,6 +25,11 @@ except (KeyError, AttributeError, Exception):
 
 NEWSAPI_KEY = NEWSAPI_KEY or os.environ.get("NEWSAPI_KEY", "")
 NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
+DEFAULT_NEWSAPI_KEYS = [
+    "4f8756126871406cad81af3315bab8f0",
+    "bfe4b19c5ee847458e1c268be99413fd",
+    "2ab49ed489dd48e1b07c42675292d9f7",
+]
 
 # =========================================================
 # NEWSAPI CONFIG (put near top of file, below NEWSAPI_ENDPOINT)
@@ -49,6 +54,43 @@ NEWSAPI_DOMAINS = ",".join([
 NEWSAPI_SEARCH_IN = "title,description"
 NEWSAPI_PAGE_SIZE = 40  # keep it modest to avoid rate limits
 NEWSAPI_TIMEOUT = 8
+GDELT_ENDPOINT = "https://api.gdeltproject.org/api/v2/doc/doc"
+
+
+def _load_newsapi_keys() -> List[str]:
+    keys: List[str] = []
+    # Primary single key if provided
+    if NEWSAPI_KEY:
+        keys.append(NEWSAPI_KEY)
+
+    # Optional list from secrets or env (comma-separated)
+    try:
+        extra = st.secrets.get("NEWSAPI_KEYS", default=[])
+        if isinstance(extra, str):
+            keys.extend([k.strip() for k in extra.split(",") if k.strip()])
+        elif isinstance(extra, list):
+            keys.extend([str(k).strip() for k in extra if str(k).strip()])
+    except Exception:
+        pass
+
+    env_extra = os.environ.get("NEWSAPI_KEYS", "")
+    if env_extra:
+        keys.extend([k.strip() for k in env_extra.split(",") if k.strip()])
+
+    # Fallback defaults supplied by user
+    keys.extend(DEFAULT_NEWSAPI_KEYS)
+
+    # Deduplicate while preserving order
+    deduped = []
+    seen = set()
+    for k in keys:
+        if k and k not in seen:
+            deduped.append(k)
+            seen.add(k)
+    return deduped
+
+
+NEWSAPI_KEYS = _load_newsapi_keys()
 
 # =========================================================
 # PAGE SETUP
@@ -390,8 +432,13 @@ def fetch_news_for_ticker(
     company = TICKER_NAME.get(ticker.upper(), "").strip()
     articles: List[NewsArticle] = []
 
-    # === Primary: NewsAPI (if key available) ===
+    # === Primary: NewsAPI (cycle keys until success or exhausted) ===
+    newsapi_keys = []
     if api_key:
+        newsapi_keys.append(api_key)
+    newsapi_keys.extend([k for k in NEWSAPI_KEYS if k and k not in newsapi_keys])
+
+    for key in newsapi_keys:
         if company:
             q = f'("{ticker}" OR "{company}") AND (stock OR shares OR earnings OR company OR Inc OR Corp OR PLC)'
             q_in_title = f'"{ticker}" OR "{company}"'
@@ -408,19 +455,18 @@ def fetch_news_for_ticker(
             "sortBy": "publishedAt",
             "pageSize": NEWSAPI_PAGE_SIZE,
             "domains": NEWSAPI_DOMAINS,
-            "apiKey": api_key,
+            "apiKey": key,
         }
 
         try:
             resp = requests.get(NEWSAPI_ENDPOINT, params=params, timeout=NEWSAPI_TIMEOUT)
-            if resp.status_code != 429:
-                resp.raise_for_status()
-                payload = resp.json()
-                raw_articles = payload.get("articles", [])
-            else:
-                raw_articles = []
+            if resp.status_code == 429:
+                continue  # try next key
+            resp.raise_for_status()
+            payload = resp.json()
+            raw_articles = payload.get("articles", [])
         except Exception:
-            raw_articles = []
+            continue
 
         for art in raw_articles:
             try:
@@ -438,6 +484,10 @@ def fetch_news_for_ticker(
                 )
             except Exception:
                 continue
+
+        # stop after first successful key
+        if articles:
+            break
 
     # === Secondary: GDELT (no key required) ===
     articles.extend(_fetch_gdelt_news(ticker, company, lookback_days))
