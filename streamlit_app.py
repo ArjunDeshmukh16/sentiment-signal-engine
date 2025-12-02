@@ -484,6 +484,18 @@ def fetch_news_for_ticker(
             resp.raise_for_status()
             payload = resp.json()
             raw_articles = payload.get("articles", [])
+            # If the strict domain filter returns nothing, retry without domain restriction
+            if not raw_articles:
+                looser_params = params.copy()
+                looser_params.pop("domains", None)
+                looser_params["searchIn"] = "title,description,content"
+                looser_params["pageSize"] = NEWSAPI_PAGE_SIZE
+                resp = requests.get(NEWSAPI_ENDPOINT, params=looser_params, timeout=NEWSAPI_TIMEOUT)
+                if resp.status_code == 429:
+                    continue
+                resp.raise_for_status()
+                payload = resp.json()
+                raw_articles = payload.get("articles", [])
         except Exception:
             continue
 
