@@ -27,6 +27,30 @@ NEWSAPI_KEY = NEWSAPI_KEY or os.environ.get("NEWSAPI_KEY", "")
 NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
 
 # =========================================================
+# NEWSAPI CONFIG (put near top of file, below NEWSAPI_ENDPOINT)
+# =========================================================
+NEWSAPI_DOMAINS = ",".join([
+    "reuters.com",
+    "bloomberg.com",
+    "wsj.com",
+    "cnbc.com",
+    "marketwatch.com",
+    "seekingalpha.com",
+    "fool.com",
+    "barrons.com",
+    "investing.com",
+    "finance.yahoo.com",
+    "fortune.com",
+    "businessinsider.com",
+    "nasdaq.com",
+    "apnews.com",
+])
+
+NEWSAPI_SEARCH_IN = "title,description"
+NEWSAPI_PAGE_SIZE = 40  # keep it modest to avoid rate limits
+NEWSAPI_TIMEOUT = 8
+
+# =========================================================
 # PAGE SETUP
 # =========================================================
 st.set_page_config(page_title="Generating Buy/Sell Trading Signals", layout="wide")
@@ -358,68 +382,58 @@ def fetch_news_for_ticker(
     lookback_days: int,
     api_key: str,
 ) -> List[NewsArticle]:
-    """Fetch recent news for a ticker via NewsAPI with finance-focused filters."""
+    """
+    Fetch recent news for a ticker via NewsAPI.
+
+    - Uses ticker + company name in query.
+    - Restricts to major finance/business domains.
+    - Silently falls back to [] on rate limit (429) or other errors
+      instead of spamming the main page.
+    """
     if not api_key:
         return []
 
-    company = TICKER_NAME.get(ticker.upper(), "")
+    company = TICKER_NAME.get(ticker.upper(), "").strip()
 
-    # Favor headlines explicitly mentioning the ticker/company in the title,
-    # and constrain sources to finance-heavy outlets to avoid random blogs.
-    domain_allowlist = [
-        "reuters.com",
-        "bloomberg.com",
-        "wsj.com",
-        "cnbc.com",
-        "marketwatch.com",
-        "seekingalpha.com",
-        "fool.com",
-        "barrons.com",
-        "investing.com",
-        "finance.yahoo.com",
-        "fortune.com",
-        "businessinsider.com",
-        "nasdaq.com",
-        "cnbc.com",
-        "apnews.com",
-    ]
-
-    ticker_term = f'"{ticker}"'
-    company_term = f'"{company}"' if company else ""
-    # Bias toward finance context words to reduce noise
-    finance_context = "(stock OR shares OR earnings OR company OR Inc OR Corp OR PLC)"
-    q_title = " OR ".join(filter(None, [ticker_term, company_term])) or ticker
-    q = f"({q_title}) AND {finance_context}"
+    # Query: focus on finance context
+    if company:
+        q = f'("{ticker}" OR "{company}") AND (stock OR shares OR earnings OR company OR Inc OR Corp OR PLC)'
+        q_in_title = f'"{ticker}" OR "{company}"'
+    else:
+        q = f'{ticker} AND (stock OR shares OR earnings)'
+        q_in_title = ticker
 
     params = {
         "q": q,
-        "qInTitle": q_title,
+        "qInTitle": q_in_title,
         "from": (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%d"),
         "language": "en",
-        "searchIn": "title,description",
+        "searchIn": NEWSAPI_SEARCH_IN,
         "sortBy": "publishedAt",
-        "pageSize": 100,
-        "domains": ",".join(domain_allowlist),
+        "pageSize": NEWSAPI_PAGE_SIZE,
+        "domains": NEWSAPI_DOMAINS,
         "apiKey": api_key,
     }
 
     try:
-        resp = requests.get(NEWSAPI_ENDPOINT, params=params, timeout=10)
+        resp = requests.get(NEWSAPI_ENDPOINT, params=params, timeout=NEWSAPI_TIMEOUT)
+
+        # Explicitly handle rate limiting
+        if resp.status_code == 429:
+            # Only show a single soft message per session, not one per ticker
+            if not st.session_state.get("news_rate_limited", False):
+                st.info(
+                    "NewsAPI rate limit reached. "
+                    "Sentiment will be set to neutral for remaining tickers."
+                )
+                st.session_state["news_rate_limited"] = True
+            return []
+
         resp.raise_for_status()
         payload = resp.json()
         raw_articles = payload.get("articles", [])
-        # If too strict, retry with a slightly looser search (keep domain allowlist)
-        if not raw_articles:
-            fallback_params = params.copy()
-            fallback_params.pop("qInTitle", None)
-            fallback_params["searchIn"] = "title,description,content"
-            fallback_params["q"] = f'("{ticker}") AND {finance_context}'
-            resp = requests.get(NEWSAPI_ENDPOINT, params=fallback_params, timeout=10)
-            resp.raise_for_status()
-            payload = resp.json()
-            raw_articles = payload.get("articles", [])
-    except Exception as exc:
-        st.warning(f"[NEWS] Failed for {ticker}: {exc}")
+    except Exception:
+        # Swallow errors for UI cleanliness; just return no news = neutral sentiment
         return []
 
     out: List[NewsArticle] = []
