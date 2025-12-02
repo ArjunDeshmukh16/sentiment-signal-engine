@@ -71,12 +71,24 @@ def _load_newsapi_keys() -> List[str]:
             keys.extend([k.strip() for k in extra.split(",") if k.strip()])
         elif isinstance(extra, list):
             keys.extend([str(k).strip() for k in extra if str(k).strip()])
+        # Grab numbered secrets like NEWSAPI_KEY_1, NEWSAPI_KEY_2, ...
+        for k_name, k_val in dict(st.secrets).items():
+            if str(k_name).upper().startswith("NEWSAPI_KEY"):
+                val = str(k_val).strip()
+                if val:
+                    keys.append(val)
     except Exception:
         pass
 
     env_extra = os.environ.get("NEWSAPI_KEYS", "")
     if env_extra:
         keys.extend([k.strip() for k in env_extra.split(",") if k.strip()])
+    # Environment variables like NEWSAPI_KEY_1, NEWSAPI_KEY_2, ...
+    for env_k, env_v in os.environ.items():
+        if env_k.upper().startswith("NEWSAPI_KEY"):
+            val = str(env_v).strip()
+            if val:
+                keys.append(val)
 
     # Fallback defaults supplied by user
     keys.extend(DEFAULT_NEWSAPI_KEYS)
