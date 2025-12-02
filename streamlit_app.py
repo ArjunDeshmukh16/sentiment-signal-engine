@@ -381,78 +381,138 @@ def fetch_news_for_ticker(
     api_key: str,
 ) -> List[NewsArticle]:
     """
-    Fetch recent news for a ticker via NewsAPI.
+    Fetch recent news for a ticker via NewsAPI and GDELT (fallback).
 
     - Uses ticker + company name in query.
-    - Restricts to major finance/business domains.
-    - Silently falls back to [] on rate limit (429) or other errors
-      instead of spamming the main page.
+    - Restricts to major finance/business domains for NewsAPI.
+    - Swallows errors and rate limits; returns [] for neutral sentiment.
     """
-    if not api_key:
-        return []
-
     company = TICKER_NAME.get(ticker.upper(), "").strip()
+    articles: List[NewsArticle] = []
 
-    # Query: focus on finance context
-    if company:
-        q = f'("{ticker}" OR "{company}") AND (stock OR shares OR earnings OR company OR Inc OR Corp OR PLC)'
-        q_in_title = f'"{ticker}" OR "{company}"'
-    else:
-        q = f'{ticker} AND (stock OR shares OR earnings)'
-        q_in_title = ticker
+    # === Primary: NewsAPI (if key available) ===
+    if api_key:
+        if company:
+            q = f'("{ticker}" OR "{company}") AND (stock OR shares OR earnings OR company OR Inc OR Corp OR PLC)'
+            q_in_title = f'"{ticker}" OR "{company}"'
+        else:
+            q = f'{ticker} AND (stock OR shares OR earnings)'
+            q_in_title = ticker
 
-    params = {
-        "q": q,
-        "qInTitle": q_in_title,
-        "from": (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%d"),
-        "language": "en",
-        "searchIn": NEWSAPI_SEARCH_IN,
-        "sortBy": "publishedAt",
-        "pageSize": NEWSAPI_PAGE_SIZE,
-        "domains": NEWSAPI_DOMAINS,
-        "apiKey": api_key,
-    }
+        params = {
+            "q": q,
+            "qInTitle": q_in_title,
+            "from": (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%d"),
+            "language": "en",
+            "searchIn": NEWSAPI_SEARCH_IN,
+            "sortBy": "publishedAt",
+            "pageSize": NEWSAPI_PAGE_SIZE,
+            "domains": NEWSAPI_DOMAINS,
+            "apiKey": api_key,
+        }
 
-    try:
-        resp = requests.get(NEWSAPI_ENDPOINT, params=params, timeout=NEWSAPI_TIMEOUT)
+        try:
+            resp = requests.get(NEWSAPI_ENDPOINT, params=params, timeout=NEWSAPI_TIMEOUT)
+            if resp.status_code != 429:
+                resp.raise_for_status()
+                payload = resp.json()
+                raw_articles = payload.get("articles", [])
+            else:
+                raw_articles = []
+        except Exception:
+            raw_articles = []
 
-        # Explicitly handle rate limiting
-        if resp.status_code == 429:
-            # Only show a single soft message per session, not one per ticker
-            if not st.session_state.get("news_rate_limited", False):
-                st.info(
-                    "NewsAPI rate limit reached. "
-                    "Sentiment will be set to neutral for remaining tickers."
+        for art in raw_articles:
+            try:
+                published_raw = art.get("publishedAt", "")
+                if not published_raw:
+                    continue
+                published_at = datetime.fromisoformat(published_raw.replace("Z", "+00:00"))
+                articles.append(
+                    NewsArticle(
+                        title=art.get("title") or "",
+                        description=art.get("description"),
+                        published_at=published_at,
+                        url=art.get("url") or "",
+                    )
                 )
-                st.session_state["news_rate_limited"] = True
-            return []
+            except Exception:
+                continue
 
+    # === Secondary: GDELT (no key required) ===
+    articles.extend(_fetch_gdelt_news(ticker, company, lookback_days))
+
+    # Deduplicate by title + date to limit repeats
+    seen = set()
+    deduped: List[NewsArticle] = []
+    for art in articles:
+        key = (art.title.strip().lower(), art.published_at.date())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(art)
+
+    return deduped
+
+
+def _fetch_gdelt_news(ticker: str, company: str, lookback_days: int) -> List[NewsArticle]:
+    """Fallback headlines from GDELT (free, no key)."""
+    try:
+        finance_context = "(stock OR shares OR earnings OR company OR Inc OR Corp OR PLC)"
+        if company:
+            query = f'("{ticker}" OR "{company}") AND {finance_context}'
+        else:
+            query = f'{ticker} AND {finance_context}'
+
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(days=lookback_days)
+        params = {
+            "query": query,
+            "mode": "artlist",
+            "maxrecords": 50,
+            "format": "json",
+            "sort": "DateDesc",
+            "startdatetime": start_dt.strftime("%Y%m%d%H%M%S"),
+            "enddatetime": end_dt.strftime("%Y%m%d%H%M%S"),
+        }
+        resp = requests.get(GDELT_ENDPOINT, params=params, timeout=NEWSAPI_TIMEOUT)
         resp.raise_for_status()
-        payload = resp.json()
-        raw_articles = payload.get("articles", [])
+        data = resp.json()
+        raw = data.get("articles", [])
     except Exception:
-        # Swallow errors for UI cleanliness; just return no news = neutral sentiment
         return []
 
-    out: List[NewsArticle] = []
-    for art in raw_articles:
+    results: List[NewsArticle] = []
+    for a in raw:
         try:
-            published_raw = art.get("publishedAt", "")
-            if not published_raw:
+            title = a.get("title") or ""
+            url = a.get("url") or ""
+            date_raw = a.get("seendate") or a.get("date")
+            if not title or not url or not date_raw:
                 continue
-            published_at = datetime.fromisoformat(published_raw.replace("Z", "+00:00"))
-            out.append(
+            published_at = None
+            try:
+                published_at = datetime.fromisoformat(date_raw.replace("Z", "+00:00"))
+            except Exception:
+                try:
+                    published_at = datetime.strptime(date_raw, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+                except Exception:
+                    pass
+            if published_at is None:
+                continue
+            desc = a.get("sourceCommonName") or a.get("source") or ""
+            results.append(
                 NewsArticle(
-                    title=art.get("title") or "",
-                    description=art.get("description"),
+                    title=title,
+                    description=desc or None,
                     published_at=published_at,
-                    url=art.get("url") or "",
+                    url=url,
                 )
             )
         except Exception:
             continue
 
-    return out
+    return results
 
 
 def _decay_weight(
