@@ -92,6 +92,7 @@ def _load_newsapi_keys() -> List[str]:
 
 
 NEWSAPI_KEYS = _load_newsapi_keys()
+PRIMARY_NEWSAPI_KEY = NEWSAPI_KEY or (NEWSAPI_KEYS[0] if NEWSAPI_KEYS else "")
 
 # =========================================================
 # PAGE SETUP
@@ -735,7 +736,7 @@ def score_universe(
 
             sent_val = 0.0
             if include_sentiment:
-                news = fetch_news_for_ticker(t, news_lookback_days, NEWSAPI_KEY)
+                news = fetch_news_for_ticker(t, news_lookback_days, PRIMARY_NEWSAPI_KEY)
                 if news:
                     sent_val = score_headlines(news)
                 elif include_sentiment:
@@ -861,10 +862,6 @@ if engine_ran:
         st.warning("No tickers selected.")
         st.stop()
 
-    if include_sentiment and not NEWSAPI_KEY:
-        st.warning("No NEWSAPI_KEY set. Sentiment will be neutral.")
-        include_sentiment = False
-
     st.subheader("Universe Ranking")
     scores_df = score_universe(
         tickers=tickers,
@@ -887,8 +884,8 @@ if engine_ran:
         ts_reset["Date"] = pd.to_datetime(ts_reset["Date"])
 
         news_articles: List[NewsArticle] = []
-        if include_sentiment and NEWSAPI_KEY:
-            news_articles = fetch_news_for_ticker(selected_ticker, news_lookback_days, NEWSAPI_KEY)
+        if include_sentiment:
+            news_articles = fetch_news_for_ticker(selected_ticker, news_lookback_days, PRIMARY_NEWSAPI_KEY)
 
         tech_tab, sentiment_tab = st.tabs(["Technical Charts", "Sentiment & News"])
 
